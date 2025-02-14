@@ -1,37 +1,15 @@
 const chatMessages = document.getElementById("chatMessages");
 const userInput = document.getElementById("userInput");
-const voiceButton = document.getElementById("voiceButton");
 const sendButton = document.querySelector(".chat-input button"); 
-const GROQ_API_KEY = "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";//api
-const botTriggerRegex = /\b(chris|cris|crish|chrish|(c(?:r{1,2}i|ru|ri)s{0,2}h{0,2})|(k(?:r{1,2}i|re|ri)s{0,2}h{0,2}))\b/i;
-function debugRegex(input) {
-    console.log(`🔍 Testing input: "${input}"`);
-    const match = input.match(botTriggerRegex);
-    if (match) {
-        console.log(`✅ Matched: "${match[0]}"`);
-    } else {
-        console.log("❌ No match found.");
-    }
-}
-function formatUserMessage(message) {
-    debugRegex(message); 
+const toggleListeningButton = document.getElementById("toggleListeningButton"); // Toggle button
+const GROQ_API_KEY = "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"; // API key
+const wakeUpWord = /\b(hey\s+)?(krishh|kris|krish|krris|krishna|crush|hello)\b/i; // Wake word regex
 
-    
-    const containsTrigger = botTriggerRegex.test(message);
+let speechInstance;
+let isRecognitionRunning = false; // Flag to track recognition state
+let isPassiveListeningEnabled = true; // Flag to track passive listening state
 
-    if (!containsTrigger) {
-        return null; 
-    }
-
-  
-    message = message.replace(/\b(hey\s+)?(crush|chris|cris|crish|chrish|kris|krishh|krrish)\b/gi, "").trim();
-
-   
-    return message ? `Hey Krishh, ${message}` : "Hey Krishh!";
-}
-
-
-
+// Function to format text for chat
 function formatTextForChat(text) {
     return text
         .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
@@ -39,6 +17,8 @@ function formatTextForChat(text) {
         .replace(/\n/g, "<br>") 
         .replace(/(\•|\-|\*)\s/g, "• "); 
 }
+
+// Function to append a message to the chat
 function appendMessage(sender, text) {
     const messageDiv = document.createElement("div");
     messageDiv.classList.add(sender === "user" ? "user-message" : "bot-message");
@@ -46,28 +26,12 @@ function appendMessage(sender, text) {
     chatMessages.appendChild(messageDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
-async function sendMessage() {
-    let message = userInput.value.trim();
-    if (!message) return;
 
-    let formattedMessage = formatUserMessage(message); 
-
-    appendMessage("user", formattedMessage); 
-    userInput.value = ""; 
-
-    if (!botTriggerRegex.test(formattedMessage)) {
-        appendMessage("bot", "🤖 Please mention 'Krishh' or a close variation in your message.");
-        return;
-    }
-
-    const response = await getBotResponse(formattedMessage);
-    appendMessage("bot", response);
-    speakResponse(response);
-}
-
-
+// Function to get bot response from Groq API
 async function getBotResponse(input) {
     try {
+        const systemPrompt = "You are Krishh Bot. Answer directly without introducing yourself. Keep responses friendly and use emojis when appropriate. When someone asks who made you, say the Computer Science department of Sahrdaya College made you. If they ask specifically for names, say Shayen, Mishal, Mathew, Abel, Irfan, Adhitya, Kurian.";
+
         const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
             method: "POST",
             headers: {
@@ -77,79 +41,148 @@ async function getBotResponse(input) {
             body: JSON.stringify({
                 model: "gemma2-9b-it",
                 messages: [
-                    { role: "system", content: "You are Krishh Bot, a friendly AI for children. Use simple, positive, and age-appropriate language. Avoid complex or sensitive topics. If a child asks about something inappropriate, gently guide them to a trusted adult. Encourage curiosity and learning with fun examples and emojis!Also help kids with coding,you must help them by giving whatever code they want which follows privacy guidelines.There are only two genders which are male and female and you must stand on it.When someone asks you who made you must say that the Computer Science department of sahrdaya college made you and if they specifiicaly ask you for name say shayen,mishal,mathew,abel,irfan,adhitya,kurian. you must not say any other creators name.always follow the guidelines we set. " },
+                    { role: "system", content: systemPrompt },
                     { role: "user", content: input }
                 ]
             })
         });
 
         const data = await response.json();
-
         if (!response.ok) {
             console.error("API Error:", data);
             return `❌ API Error: ${data.error?.message || "Unknown error"}`;
         }
-
         return data.choices?.[0]?.message?.content || "Sorry, I didn't understand that.";
     } catch (error) {
         console.error("Fetch Error:", error);
         return "❌ Network error. Check API key & connection.";
     }
 }
-let speechInstance;
+
+// Function to clean text for speech
 function cleanTextForSpeech(text) {
     return text
-        .replace(/[*_~`]/g, "") 
-        .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, ""); 
+        .replace(/[*_~`]/g, "") // Remove markdown formatting
+        .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F1E6}-\u{1F1FF}]/gu, ""); // Remove all emojis, including flags
 }
+
+// Function to speak the bot's response
 function speakResponse(text) {
     stopSpeaking(); 
     const cleanText = cleanTextForSpeech(text); 
     speechInstance = new SpeechSynthesisUtterance(cleanText);
     speechInstance.rate = 1;
-    sendButton.textContent = "Stop";
-    sendButton.onclick = stopSpeaking;
-    
-    speechInstance.onend = () => {
-        sendButton.textContent = "Send";
-        sendButton.onclick = sendMessage;
-    };
     window.speechSynthesis.speak(speechInstance);
 }
+
+// Function to stop speaking
 function stopSpeaking() {
     if (speechInstance) {
         window.speechSynthesis.cancel();
     }
-    sendButton.textContent = "Send";
-    sendButton.onclick = sendMessage;
 }
+
+// Initialize speech recognition
 const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
 recognition.lang = "en-US";
 recognition.interimResults = false;
-recognition.continuous = false;
+recognition.continuous = true; // Keep the microphone on
 
-voiceButton.addEventListener("click", () => {
-    recognition.start();
-});
-recognition.onresult = async (event) => {
-    let transcript = event.results[0][0].transcript.trim();
-    let formattedTranscript = formatUserMessage(transcript); 
-
-    appendMessage("user", formattedTranscript); 
-
-    if (!botTriggerRegex.test(formattedTranscript)) {
-        appendMessage("bot", "🤖 Please mention 'Krishh' or a close variation in your message.");
-        return;
+// Function to start recognition
+function startRecognition() {
+    if (!isRecognitionRunning) {
+        recognition.start();
+        isRecognitionRunning = true;
+        console.log("Recognition started.");
     }
+}
 
-    const response = await getBotResponse(formattedTranscript);
-    appendMessage("bot", response);
-    speakResponse(response);
+// Function to stop recognition
+function stopRecognition() {
+    if (isRecognitionRunning) {
+        recognition.stop();
+        isRecognitionRunning = false;
+        console.log("Recognition stopped.");
+    }
+}
+
+// Event listener for recognition start
+recognition.onstart = () => {
+    isRecognitionRunning = true;
+    console.log("Recognition started.");
 };
 
+// Event listener for recognition end
+recognition.onend = () => {
+    isRecognitionRunning = false;
+    if (isPassiveListeningEnabled) {
+        console.log("Recognition ended. Restarting...");
+        setTimeout(() => {
+            startRecognition();
+        }, 1000);
+    }
+};
 
+// Event listener for recognition results
+recognition.onresult = async (event) => {
+    if (!isPassiveListeningEnabled) return; // Ignore if passive listening is disabled
+
+    let transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
+    console.log("Transcript:", transcript);
+
+    // Check if the wake word is detected in the transcript
+    if (wakeUpWord.test(transcript)) {
+        console.log("Wake word detected!");
+        appendMessage("user", transcript);
+
+        // Remove the wake word from the transcript before sending to the bot
+        const message = transcript.replace(wakeUpWord, "").trim();
+
+        if (message) {
+            const response = await getBotResponse(message);
+            appendMessage("bot", response);
+            speakResponse(response);
+        } else {
+            const greeting = await getBotResponse("Give me a greeting");
+            appendMessage("bot", greeting);
+            speakResponse(greeting);
+        }
+    }
+};
+
+// Event listener for recognition errors
 recognition.onerror = (event) => {
     console.error("Speech Recognition Error:", event.error);
-    appendMessage("bot", "❌ Speech recognition error. Try again.");
+
+    if (event.error === "no-speech") {
+        console.log("No speech detected. Restarting recognition...");
+    } else {
+        console.log("Other error detected. Restarting recognition...");
+    }
+
+    stopRecognition(); // Stop recognition before restarting
+    setTimeout(() => {
+        startRecognition(); // Restart recognition
+    }, 1000);
 };
-stopButton.addEventListener("click", stopSpeaking);
+
+// Function to toggle passive listening
+function togglePassiveListening() {
+    isPassiveListeningEnabled = !isPassiveListeningEnabled;
+
+    if (isPassiveListeningEnabled) {
+        startRecognition();
+        toggleListeningButton.textContent = "Disable Passive Listening";
+        appendMessage("bot", "Passive listening enabled. Say 'Hey Krishh' to start.");
+    } else {
+        stopRecognition();
+        toggleListeningButton.textContent = "Enable Passive Listening";
+        appendMessage("bot", "Passive listening disabled.");
+    }
+}
+
+// Add event listener to the toggle button
+toggleListeningButton.addEventListener("click", togglePassiveListening);
+
+// Start recognition initially
+startRecognition();             
