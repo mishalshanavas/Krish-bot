@@ -3,7 +3,7 @@ const userInput = document.getElementById("userInput");
 const sendButton = document.querySelector(".chat-input button"); 
 const toggleListeningButton = document.getElementById("toggleListeningButton"); // Toggle button
 const GROQ_API_KEY = "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"; // API key
-const wakeUpWord = /\b(hey\s+)?(krishh|kris|krish|krris|krishna|crush|hello)\b/i; // Wake word regex
+const wakeUpWord = /\b(hey\s+)?(krishh|krrish|kris|krish|krris|krishna|crush|hello)\b/i; // Wake word regex
 
 let speechInstance;
 let isRecognitionRunning = false; // Flag to track recognition state
@@ -68,16 +68,60 @@ function cleanTextForSpeech(text) {
 
 // Function to speak the bot's response
 function speakResponse(text) {
-    stopSpeaking(); 
-    const cleanText = cleanTextForSpeech(text); 
-    speechInstance = new SpeechSynthesisUtterance(cleanText);
-    speechInstance.rate = 1;
-    window.speechSynthesis.speak(speechInstance);
+    // Cancel any ongoing speech and stop recognition to free the mic
+    stopSpeaking();
+    stopRecognition();
+
+    // Clean the text for speech synthesis
+    const cleanText = cleanTextForSpeech(text);
+    
+    // Create a new utterance with desired text
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.lang = "en-IN";     // Set language to US English
+    utterance.rate = 1;           // Adjust rate as needed (0.75 to 1.25 are common)
+    utterance.pitch = 1;          // Standard pitch
+    utterance.volume = 1;         // Full volume
+
+    // Function to select a quality voice (preferably a US female voice for Alexa-like quality)
+    function setPreferredVoice() {
+        const voices = window.speechSynthesis.getVoices();
+        if (voices.length) {
+            // Try to select a US English female voice; fallback to first voice if not found.
+            const preferredVoice = voices.find(voice =>
+                voice.lang === "en-US" &&
+                (voice.name.toLowerCase() || voice.name.toLowerCase().includes("en-us"))
+            ) || voices[0];
+            utterance.voice = preferredVoice;
+            console.log("Using voice:", preferredVoice.name);
+        }
+    }
+
+    // Try setting voice immediately; if voices aren't loaded, wait for the event.
+    setPreferredVoice();
+    if (window.speechSynthesis.getVoices().length === 0) {
+        window.speechSynthesis.onvoiceschanged = setPreferredVoice;
+    }
+
+    // Optional: Log when speech starts and ends
+    utterance.onstart = () => {
+        console.log("Speech started");
+    };
+    utterance.onend = () => {
+        console.log("Speech ended. Restarting recognition...");
+        // Restart recognition after a short delay
+        setTimeout(() => {
+            if (isPassiveListeningEnabled) startRecognition();
+        }, 500);
+    };
+
+    // Speak the utterance and store it (for potential cancellation)
+    speechInstance = utterance;
+    window.speechSynthesis.speak(utterance);
 }
 
-// Function to stop speaking
+// Function to stop any ongoing speech
 function stopSpeaking() {
-    if (speechInstance) {
+    if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
         window.speechSynthesis.cancel();
     }
 }
@@ -185,4 +229,4 @@ function togglePassiveListening() {
 toggleListeningButton.addEventListener("click", togglePassiveListening);
 
 // Start recognition initially
-startRecognition();             
+startRecognition();
